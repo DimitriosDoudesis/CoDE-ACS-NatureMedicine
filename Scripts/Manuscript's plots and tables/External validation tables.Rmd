@@ -1,0 +1,382 @@
+---
+title: "External validation tables in AUS, NZ and APACE"
+author: "Dimitrios Doudesis"
+date:  "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE) # show/hide code chunks
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_knit$set(root.dir = "\\\\Farr-FS1/Study Data/LOT-16-001/Research/High-STEACS/HS016_PPV_reloaded")
+```
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(flextable)
+library(gtsummary)
+library(pROC)
+library(knitr)
+library(kableExtra)
+library(gridExtra)
+library(janitor)
+library(survival)
+```
+
+```{r}
+# load functions
+
+source("Scripts/External validation/03A - External validation.R")
+source("Scripts/External validation/04A - External validation comparisons.R")
+source("Scripts/External validation/05A - MI3 - External validation.R")
+
+source("Scripts/Rule out/0x - Functions/{function} Thresholds table.R")
+source("Scripts/Rule in/0x - Functions/{function} Thresholds table.R")
+
+source("Scripts/Rule in/0x - Functions/{function} Add probs and results.R")
+source("Scripts/Rule out/0x - Functions/{function} Add probs and results.R")
+
+```
+
+```{r}
+Dataset_external_combined <- read_rds("Outputs/Data/Dataset_external_cleaned")
+Dataset_external_AUS <- read_rds("Outputs/Data/Dataset_AUS_cleaned")
+Dataset_external_NZ <- read_rds("Outputs/Data/Dataset_NZ_cleaned")
+Dataset_external_APACE <- read_rds("Outputs/Data/Dataset_APACE_cleaned")
+
+Dataset_NPV <- readr::read_rds("Outputs/Data/High_STEACS_NPV_presentation")
+Dataset_PPV <- readr::read_rds("Outputs/Data/High_STEACS_PPV_presentation")
+
+```
+
+
+```{r}
+
+  model_npv_presentation_external <- read_rds("Outputs/Analysis/XGBoost/XGBoost_ind_prob_presentation_NPV_external")
+
+  model_npv_presentation_threshold <-
+    read_rds("Outputs/Analysis/XGBoost/XGBoost_ind_prob_presentation_NPV_final_thresholds_table") %>%
+    dplyr::filter(npv >= 99.7) %>% 
+    data.table::last() %>%
+    select(threshold) %>%
+    unlist() %>%
+    as.vector()/100 
+
+
+  model_npv_serial_external <- read_rds("Outputs/Analysis/XGBoost/XGBoost_ind_prob_serial_NPV_external")
+
+  # PPV MODELS
+
+  model_ppv_presentation_external <- read_rds("Outputs/Analysis/XGBoost/XGBoost_ind_prob_presentation_PPV_external")
+
+  model_ppv_presentation_threshold <-
+    read_rds("Outputs/Analysis/XGBoost/XGBoost_ind_prob_presentation_PPV_final_thresholds_table") %>%
+    dplyr::filter(ppv >= 80 & specificity >= 80) %>%
+    data.table::first() %>%
+    select(threshold) %>%
+    unlist() %>%
+    as.vector()/100
+
+
+  model_ppv_serial_external <- read_rds("Outputs/Analysis/XGBoost/XGBoost_ind_prob_serial_PPV_external")
+  
+```
+
+
+
+```{r}
+
+  model_predictions <- rbind.data.frame(model_npv_presentation_external, model_ppv_presentation_external)
+  
+  
+  model_predictions <-
+    model_predictions %>%
+    dplyr::group_by(PatientId) %>% dplyr::summarise_all(median)
+
+  observezone_ids_external <- model_predictions %>%
+    mutate(observe = case_when(predictions < model_npv_presentation_threshold ~ "rule-out",
+                               predictions >= model_ppv_presentation_threshold ~ "rule-in",
+                               TRUE ~ "observe")) %>%
+    filter(observe == "observe") %>%
+    select(PatientId) %>%
+    unlist()
+  
+```
+
+## At presentation
+
+### CoDE-ACS
+
+```{r}
+
+# Combined
+table_all <- External_validation_metric_function_model_classic(
+  dataset = Dataset_external_combined,
+  model_npv = model_npv_presentation_external,
+  rule_out_threshold = model_npv_presentation_threshold,
+  model_ppv = model_ppv_presentation_external,
+  rule_in_threshold = model_ppv_presentation_threshold,
+  model_name = "XGBoost_presentation_external",
+  model = "XGBoost"
+)
+
+# Australia
+table_AUS <- External_validation_metric_function_model_classic(
+  dataset = Dataset_external_AUS,
+  model_npv = model_npv_presentation_external,
+  rule_out_threshold = model_npv_presentation_threshold,
+  model_ppv = model_ppv_presentation_external,
+  rule_in_threshold = model_ppv_presentation_threshold,
+  model_name = "XGBoost_presentation_external",
+  model = "XGBoost"
+)
+
+# New Zealand
+table_NZ <- External_validation_metric_function_model_classic(
+  dataset = Dataset_external_NZ,
+  model_npv = model_npv_presentation_external,
+  rule_out_threshold = model_npv_presentation_threshold,
+  model_ppv = model_ppv_presentation_external,
+  rule_in_threshold = model_ppv_presentation_threshold,
+  model_name = "XGBoost_presentation_external",
+  model = "XGBoost"
+)
+
+# APACE
+table_APACE <- External_validation_metric_function_model_classic(
+  dataset = Dataset_external_APACE,
+  model_npv = model_npv_presentation_external,
+  rule_out_threshold = model_npv_presentation_threshold,
+  model_ppv = model_ppv_presentation_external,
+  rule_in_threshold = model_ppv_presentation_threshold,
+  model_name = "XGBoost_presentation_external",
+  model = "XGBoost"
+)
+
+kable(table_all, caption = "External validation combined", booktabs = T, linesep = "", align = "c") %>%
+kable_styling(latex_options = c("striped", "hold_position", "scale_down"),
+              font_size = 12)
+
+kable(table_AUS, caption = "External validation Australia", booktabs = T, linesep = "", align = "c") %>%
+kable_styling(latex_options = c("striped", "hold_position", "scale_down"),
+              font_size = 12)
+
+kable(table_NZ, caption = "External validation New Zealand", booktabs = T, linesep = "", align = "c") %>%
+kable_styling(latex_options = c("striped", "hold_position", "scale_down"),
+              font_size = 12)
+
+kable(table_APACE, caption = "External validation APACE", booktabs = T, linesep = "", align = "c") %>%
+kable_styling(latex_options = c("striped", "hold_position", "scale_down"),
+              font_size = 12)
+```
+
+### Thresholds only
+
+```{r}
+
+table_thresholds_all <- External_validation_metric_function_classic(dataset = Dataset_external_combined %>% as_tibble(),
+                                    model_name = "first_troponin",
+                                    model_name_sex = "above_99th_presentation")
+
+table_thresholds_AUS <- External_validation_metric_function_classic(dataset = Dataset_external_AUS %>% as_tibble(),
+                                    model_name = "first_troponin",
+                                    model_name_sex = "above_99th_presentation")
+
+table_thresholds_NZ <- External_validation_metric_function_classic(dataset = Dataset_external_NZ %>% as_tibble(),
+                                    model_name = "first_troponin",
+                                    model_name_sex = "above_99th_presentation")
+
+table_thresholds_APACE <- External_validation_metric_function_classic(dataset = Dataset_external_APACE %>% as_tibble(),
+                                    model_name = "first_troponin",
+                                    model_name_sex = "above_99th_presentation")
+
+kable(table_thresholds_all, caption = "External validation combined", booktabs = T, linesep = "", align = "c") %>%
+kable_styling(latex_options = c("striped", "hold_position", "scale_down"),
+              font_size = 12)
+
+kable(table_thresholds_AUS, caption = "External validation Australia", booktabs = T, linesep = "", align = "c") %>%
+kable_styling(latex_options = c("striped", "hold_position", "scale_down"),
+              font_size = 12)
+
+kable(table_thresholds_NZ, caption = "External validation New Zealand", booktabs = T, linesep = "", align = "c") %>%
+kable_styling(latex_options = c("striped", "hold_position", "scale_down"),
+              font_size = 12)
+
+kable(table_thresholds_APACE, caption = "External validation APACE", booktabs = T, linesep = "", align = "c") %>%
+kable_styling(latex_options = c("striped", "hold_position", "scale_down"),
+              font_size = 12)
+
+```
+
+\pagebreak
+
+## With serial measurements
+
+
+```{r}
+
+Dataset_NPV <-
+  Add_preds_to_dataset(
+    dataset = Dataset_NPV,
+    model_predictions = readr::read_rds(
+      glue(
+        "Outputs/Analysis/XGBoost/XGBoost_ind_prob_serial_NPV_final"
+      )
+    ),
+    model_name = glue("XGBoost_ind_prob_serial_NPV_final_observe")
+  )
+
+  model_predictions_internal <- read_rds("Outputs/Analysis/XGBoost/XGBoost_ind_prob_presentation_NPV_final")
+  
+  
+  model_predictions_internal <-
+    model_predictions_internal %>%
+    dplyr::group_by(PatientId) %>% dplyr::summarise_all(median)
+
+  observezone_ids_internal_npv <- model_predictions_internal %>%
+    mutate(observe = case_when(predictions < model_npv_presentation_threshold ~ "rule-out",
+                               TRUE ~ "observe")) %>%
+    filter(observe == "observe") %>%
+    select(PatientId) %>%
+    unlist()
+  
+
+  Threshold_table_rule_out(
+  data = Dataset_NPV %>% rename(label = label_index) %>% filter(PatientId %in% observezone_ids_internal_npv),
+  model_preds = glue("XGBoost_ind_prob_serial_NPV_final_observe"),
+  folder = "Outputs/Analysis/XGBoost"
+)
+
+# PPV
+
+Dataset_PPV <-
+  Add_preds_to_dataset(
+    dataset = Dataset_PPV,
+    model_predictions = readr::read_rds(
+      glue(
+        "Outputs/Analysis/XGBoost/XGBoost_ind_prob_serial_PPV_final"
+      )
+    ),
+    model_name = glue("XGBoost_ind_prob_serial_PPV_final_observe")
+  )
+
+  model_predictions_internal <- read_rds("Outputs/Analysis/XGBoost/XGBoost_ind_prob_presentation_PPV_final")
+  
+  
+  model_predictions_internal <-
+    model_predictions_internal %>%
+    dplyr::group_by(PatientId) %>% dplyr::summarise_all(median)
+
+  observezone_ids_internal_ppv <- model_predictions_internal %>%
+    mutate(observe = case_when(#predictions < model_npv_presentation_threshold ~ "rule-out",
+                               predictions >= model_ppv_presentation_threshold ~ "rule-in",
+                               TRUE ~ "observe")) %>%
+    filter(observe == "observe") %>%
+    select(PatientId) %>%
+    unlist()
+
+Threshold_table_rule_in(
+  data = Dataset_PPV %>% rename(label = label_index) %>% filter(PatientId %in% observezone_ids_internal_ppv),
+  model_preds = glue("XGBoost_ind_prob_serial_PPV_final_observe"),
+  folder = "Outputs/Analysis/XGBoost"
+)
+
+```
+
+
+
+### CoDE-ACS
+
+```{r}
+# new observe thresholds
+
+  model_npv_serial_threshold_observe <-
+    read_rds("Outputs/Analysis/XGBoost/XGBoost_ind_prob_serial_NPV_final_observe_thresholds_table") %>%
+    dplyr::filter(npv >= 99.5) %>%
+    data.table::last() %>%
+    select(threshold) %>%
+    unlist() %>%
+    as.vector()/100
+
+
+  model_ppv_serial_threshold_observe <-
+    read_rds("Outputs/Analysis/XGBoost/XGBoost_ind_prob_serial_PPV_final_observe_thresholds_table") %>%
+    dplyr::filter(ppv >= 80 & specificity >= 80) %>%
+    data.table::first() %>%
+    select(threshold) %>%
+    unlist() %>%
+    as.vector()/100
+
+
+```
+
+
+
+```{r}
+
+
+# Combined
+table_all <- External_validation_metric_function_model_classic(
+  dataset = Dataset_external_combined %>% filter(PatientId %in% observezone_ids_external),
+  model_npv = model_npv_serial_external,
+  rule_out_threshold = model_npv_serial_threshold_observe,
+  model_ppv = model_ppv_serial_external,
+  rule_in_threshold = model_ppv_serial_threshold_observe,
+  model_name = "XGBoost_serial_external",
+  model = "XGBoost"
+)
+
+# Australia
+table_AUS <- External_validation_metric_function_model_classic(
+  dataset = Dataset_external_AUS %>% filter(PatientId %in% observezone_ids_external),
+  model_npv = model_npv_serial_external,
+  rule_out_threshold = model_npv_serial_threshold_observe,
+  model_ppv = model_ppv_serial_external,
+  rule_in_threshold = model_ppv_serial_threshold_observe,
+  model_name = "XGBoost_serial_external",
+  model = "XGBoost"
+)
+
+# New Zealand
+table_NZ <- External_validation_metric_function_model_classic(
+  dataset = Dataset_external_NZ %>% filter(PatientId %in% observezone_ids_external),
+  model_npv = model_npv_serial_external,
+  rule_out_threshold = model_npv_serial_threshold_observe,
+  model_ppv = model_ppv_serial_external,
+  rule_in_threshold = model_ppv_serial_threshold_observe,
+  model_name = "XGBoost_serial_external",
+  model = "XGBoost"
+)
+
+table_APACE <- External_validation_metric_function_model_classic(
+  dataset = Dataset_external_APACE %>% filter(PatientId %in% observezone_ids_external),
+  model_npv = model_npv_serial_external,
+  rule_out_threshold = model_npv_serial_threshold_observe,
+  model_ppv = model_ppv_serial_external,
+  rule_in_threshold = model_ppv_serial_threshold_observe,
+  model_name = "XGBoost_serial_external",
+  model = "XGBoost"
+)
+
+
+
+kable(table_all, caption = "External validation combined", booktabs = T, linesep = "", align = "c") %>%
+kable_styling(latex_options = c("striped", "hold_position", "scale_down"),
+              font_size = 12)
+
+kable(table_AUS, caption = "External validation Australia", booktabs = T, linesep = "", align = "c") %>%
+kable_styling(latex_options = c("striped", "hold_position", "scale_down"),
+              font_size = 12)
+
+kable(table_NZ, caption = "External validation New Zealand", booktabs = T, linesep = "", align = "c") %>%
+kable_styling(latex_options = c("striped", "hold_position", "scale_down"),
+              font_size = 12)
+
+kable(table_APACE, caption = "External validation APACE", booktabs = T, linesep = "", align = "c") %>%
+kable_styling(latex_options = c("striped", "hold_position", "scale_down"),
+              font_size = 12)
+```
